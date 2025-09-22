@@ -32,17 +32,67 @@ active_connections = {}
 async def health():
     return {"status": "ok"}
 
-@app.post("/exotel/callback")
+@app.api_route("/exotel/callback", methods=["GET", "POST"])
 async def exotel_callback(request: Request):
+    """
+    Robust callback endpoint:
+     - accepts POST (form-encoded or json) and GET (for quick browser tests)
+     - logs raw body when parsing fails
+     - always returns 200 OK quickly to avoid retries from Exotel
+    """
+    data = {}
     try:
-        form = await request.form()
-        data = dict(form)
-    except Exception:
-        data = await request.json()
-    print("[callback] received keys:", list(data.keys())[:10])
-    sid = data.get("CallSid") or data.get("call_id") or data.get("CallID") or "unknown"
-    (SAVE_DIR / f"{sid}.meta.json").write_text(str(data))
-    return PlainTextResponse("OK")
+        ct = request.headers.get("content-type", "").lower()
+        # GET -> use query params
+        if request.method == "GET":
+            data = dict(request.query_params)
+        # JSON content
+        elif "application/json" in ct:
+            data = await request.json()
+        # Form-encoded (x-www-form-urlencoded or multipart/form-data)
+        elif "application/x-www-form-urlencoded" in ct or "multipart/form-data" in ct:
+            form = await request.form()
+            data = dict(form)
+        else:
+            # Unknown content-type: try form first, then json, then raw
+            try:
+                form = await request.form()
+                data = dict(form)
+            except Exception:
+                try:
+                    data = await request.json()
+                except Exception:
+                    # read raw body for debugging
+                    raw = await request.body()
+                    print("[exotel_callback] unknown body (raw):", raw)
+                    data = {"_raw_body": raw.decode("utf-8", errors="replace")}
+    except Exception as e:
+        # don't let exceptions bubble up to cause a 500
+        print("[exotel_callback] exception parsing request:", e)
+        try:
+            raw = await request.body()
+            print("[exotel_callback] raw body after exception:", raw)
+        except Exception:
+            pass
+        # return 200 so Exotel sees success; you can change to 400 if you prefer
+        return PlainTextResponse("OK", status_code=200)
+
+    # Extract most useful fields with fallbacks
+    call_sid = data.get("CallSid") or data.get("call_id") or data.get("CallID") or data.get("CallSid")
+    caller = data.get("From")
+    to = data.get("To")
+    status = data.get("CallStatus") or data.get("call_status") or data.get("status")
+
+    # log for debugging
+    print("CALL CALLBACK RECEIVED:", {"CallSid": call_sid, "From": caller, "To": to, "CallStatus": status})
+    # Save metadata for later debugging (optional)
+    try:
+        (SAVE_DIR / f"{call_sid or 'unknown'}.meta.json").write_text(str(data))
+    except Exception as e:
+        print("Failed to write meta file:", e)
+
+    # respond quickly
+    return JSONResponse({"CallSid": call_sid, "From": caller, "To": to, "CallStatus": status})
 
 async def run_cmd(cmd):
     proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
