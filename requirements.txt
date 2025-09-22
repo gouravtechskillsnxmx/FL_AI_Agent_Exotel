@@ -6,3 +6,4 @@ websockets
 openai
 pyttsx3
 pydub
+python-multipart
