@@ -1,0 +1,15 @@
+[Unit]
+Description=Exotel Voicebot (uvicorn)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/exotel-voicebot
+Environment="PATH=/srv/exotel-voicebot/venv/bin"
+ExecStart=/srv/exotel-voicebot/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
