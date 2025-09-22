@@ -13,6 +13,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
+from fastapi.responses import JSONResponse
+
 
 load_dotenv()
 import openai
